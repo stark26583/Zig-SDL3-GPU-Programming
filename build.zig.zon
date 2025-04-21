@@ -1,0 +1,24 @@
+.{
+    .name = .sdl3_template,
+    .version = "0.0.0",
+    .dependencies = .{
+        .sdl3 = .{
+            .url = "https://github.com/Gota7/zig-sdl3/archive/refs/heads/master.zip",
+            .hash = "sdl3-0.0.1-NmT1Q2U-EQD7Kco_8zqanC5TC4SzW1n-AMQthImkDWpW",
+        },
+        .zmath = .{
+            .url = "git+https://github.com/zig-gamedev/zmath.git#ccf7297ef6c01e21b2d51ad81b5b6ce929e86a00",
+            .hash = "zmath-0.11.0-dev-wjwivZY1AwDO7yxNmZ5HWoU03f9mFBet8LN9-oYc3i29",
+        },
+        .zstbi = .{
+            .url = "git+https://github.com/zig-gamedev/zstbi#094c4bba5cdbec167d3f6aaa98cccccd5c99145f",
+            .hash = "zstbi-0.11.0-dev-L0Ea_-eVBwCl8RYA98PhLDw3Fhw5k7FJOHSMDKWDOvqx",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    .fingerprint = 0xa5bd7236fc5f4b29,
+}
