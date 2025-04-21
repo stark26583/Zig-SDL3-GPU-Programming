@@ -46,6 +46,17 @@ pub fn main() !void {
 
     var fps_manager = FpsManager.init(.none);
 
+    const num_available_gpus = sdl3.c.SDL_GetNumGPUDrivers();
+    // const set_d3d12 = false;
+    std.debug.print("{d} available GPU Drivers\n", .{num_available_gpus});
+    for (0..@intCast(num_available_gpus)) |i| {
+        const name = sdl3.c.SDL_GetGPUDriver(@intCast(i));
+        // if (std.mem.startsWith(u8, name[0..2], "d")) {
+        // set_d3d12 = true;
+        // }
+        std.debug.print("{d}) {s}\n", .{ i + 1, name });
+    }
+
     const gpu = sdl3.c.SDL_CreateGPUDevice(sdl3.c.SDL_GPU_SHADERFORMAT_SPIRV, true, null);
     // defer sdl3.c.SDL_DestroyGPUDevice(gpu);
 
