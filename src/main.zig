@@ -3,6 +3,12 @@ const sdl3 = @import("sdl3");
 const zmath = @import("zmath");
 const zstbi = @import("zstbi");
 const FpsManager = @import("FpsManager.zig");
+const OBJ = @import("OBJ.zig");
+
+const CommonTypes = @import("CommonTypes.zig");
+const Vec3 = CommonTypes.Vec3;
+const Color = CommonTypes.Color;
+const Vertex = CommonTypes.Vertex;
 
 const SCREEN_WIDTH = 1280;
 const SCREEN_HEIGHT = 780;
@@ -62,6 +68,11 @@ pub fn main() !void {
     );
     defer sdl3.c.SDL_ReleaseGPUShader(gpu, fragment_shader);
 
+    //Create Obj
+    const obj_data = try OBJ.parse(allocator, "src/data/police.obj");
+    defer obj_data.deinit(allocator);
+    // std.debug.print("vertices: {d}\nuvs: {d}\nfaces: {any}\n", .{ obj_data.vertices, obj_data.uvs_tex_coords, obj_data.faces });
+
     //Create Texture
     var image = try zstbi.Image.loadFromFile("src/data/cobblestone_1.png", 4);
     defer image.deinit();
@@ -78,31 +89,26 @@ pub fn main() !void {
     });
 
     // create vertex data
+    const White = Color{ 1.0, 1.0, 1.0, 1.0 };
 
-    const Vec3 = @Vector(3, f32);
-    const Color = @Vector(4, f32);
-    const Vertex = struct {
-        pos: Vec3,
-        color: Color,
-        uv: @Vector(2, f32),
-    };
+    const vertices = try allocator.alloc(Vertex, obj_data.faces.len);
+    defer allocator.free(vertices);
+    const indices = try allocator.alloc(u16, obj_data.faces.len);
+    defer allocator.free(indices);
 
-    const White: Color = .{ 1.0, 1.0, 1.0, 1.0 };
-    // const Green: Color = .{ 0.0, 1.0, 0.0, 1.0 };
-    const tint = White;
+    for (obj_data.faces, 0..) |faces, i| {
+        vertices[i] = .{
+            .pos = obj_data.positions[faces.position_index],
+            .color = White,
+            .uv = obj_data.uvs_tex_coords[faces.uv_index],
+        };
 
-    const vertices = [_]Vertex{
-        .{ .pos = .{ -1.0, 1.0, 0.0 }, .color = tint, .uv = .{ 0.0, 0.0 } }, //top left
-        .{ .pos = .{ 1.0, 1.0, 0.0 }, .color = tint, .uv = .{ 1.0, 0.0 } }, //top right
-        .{ .pos = .{ -1.0, -1.0, 0.0 }, .color = tint, .uv = .{ 0.0, 1.0 } }, //bottom left
-        .{ .pos = .{ 1.0, -1.0, 0.0 }, .color = tint, .uv = .{ 1.0, 1.0 } }, //bottom right
-    };
+        indices[i] = @intCast(i);
+    }
+
+    const indices_len: u32 = @intCast(indices.len);
+
     const vertices_byte_size = vertices.len * @sizeOf(@TypeOf(vertices[0]));
-
-    const indices = [_]u16{
-        0, 1, 2,
-        2, 1, 3,
-    };
     const indices_byte_size = indices.len * @sizeOf(@TypeOf(indices[0]));
 
     // describe vertex attributes and vertex buffers in pipline
@@ -195,7 +201,7 @@ pub fn main() !void {
         copy_pass,
         &.{
             .transfer_buffer = transfer_buffer,
-            .offset = vertices_byte_size,
+            .offset = @intCast(vertices_byte_size),
         },
         &.{
             .buffer = index_buffer,
@@ -275,7 +281,7 @@ pub fn main() !void {
 
         if (!paused) rotation += rotation_speed * fps_manager.getDelta();
         const rot = zmath.rotationY(rotation);
-        const trans = zmath.translation(0.0, 0.0, -2.6);
+        const trans = zmath.translation(0.0, -1.0, -2.6);
         const model_mat = zmath.mul(rot, trans);
         const ubo = UBO{
             .mvp = zmath.mul(model_mat, proj_mat),
@@ -305,7 +311,7 @@ pub fn main() !void {
             sdl3.c.SDL_PushGPUVertexUniformData(cmd_buffer, 0, &ubo, @sizeOf(@TypeOf(ubo)));
             const fragment_samplers_bindings = [_]sdl3.c.SDL_GPUTextureSamplerBinding{.{ .texture = texture, .sampler = sampler }};
             sdl3.c.SDL_BindGPUFragmentSamplers(render_pass, 0, fragment_samplers_bindings[0..].ptr, 1);
-            sdl3.c.SDL_DrawGPUIndexedPrimitives(render_pass, indices.len, 1, 0, 0, 0);
+            sdl3.c.SDL_DrawGPUIndexedPrimitives(render_pass, indices_len, 1, 0, 0, 0);
             sdl3.c.SDL_EndGPURenderPass(render_pass);
         }
         assert(sdl3.c.SDL_SubmitGPUCommandBuffer(cmd_buffer));
