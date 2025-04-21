@@ -1,23 +1,24 @@
-# Zig-SDL3-GPU-Programming
+## Zig‑SDL3‑GPU‑Programming
 
-## Overview  
-Zig‑SDL3‑GPU‑Programming is a cross‑platform demo showcasing GPU rendering in Zig, combining robust windowing with SDL3, efficient image loading, SIMD math, and SPIR‑V shaders for high‑performance graphics citeturn9search0turn10search9. It embeds GLSL shaders compiled to SPIR‑V at build time, enabling portable shader pipelines across Vulkan, Direct3D, and Metal citeturn11search5. The project leverages the `zmath` library for optimized linear algebra routines and `zstbi` for seamless texture loading from image files citeturn8search0turn12search0. Frame timing is handled by a custom `FpsManager.zig` module to ensure smooth animations, and the entire build process is orchestrated via Zig’s native build system with a single `zig build run` command citeturn13search0turn13search1.
+A cross-platform demo showcasing GPU rendering in [Zig](https://ziglang.org/) using [SDL3](https://github.com/libsdl-org/SDL) for windowing and context creation.
 
-## Features  
-- **Cross‑platform windowing & GPU context**: Utilizes SDL3 for creating windows and GPU devices on Windows, macOS, Linux, and mobile platforms citeturn10search9.  
-- **SIMD‑optimized math**: Powered by `zmath`, providing fast vector and matrix operations essential for 3D transformations citeturn8search0.  
-- **Image loading**: Integrates `zstbi` for decoding textures (PNG, JPEG, HDR) directly into GPU memory citeturn12search0.  
-- **Shader pipeline**: Compiles GLSL source files into SPIR‑V binaries using `glslc` from the Vulkan SDK citeturn16search1.  
-- **Frame rate control**: Includes `FpsManager.zig` to measure delta times and regulate rendering speed.  
-- **One‑step build & run**: Automates compilation, shader processing, and execution with `zig build run`, simplifying development and testing citeturn13search0.
+### Features
 
-## Requirements  
-- **Zig ≥ 0.14.0**: A modern Zig compiler to support build scripts and dependencies citeturn9search0.  
-- **Vulkan SDK (glslc)**: Provides `glslc` for offline GLSL→SPIR‑V compilation citeturn16search1.  
-- **C compiler toolchain**: Enables building C dependencies such as `zstbi` and SDL3 language bindings.  
-- **Git**: For cloning the repository and managing updates.
+- **Cross-Platform Window & GPU Context**: Uses SDL3 to create a window and GPU device on Windows, macOS, Linux, and mobile platforms.
+- **SIMD-Optimized Math**: Powered by [zmath](https://github.com/zelli/zmath), offering fast vector/matrix operations for 3D transforms.
+- **Texture Loading**: Integrates [zstbi](https://github.com/MasterQ32/zstbi) (STB Image) for decoding textures (PNG, JPEG, HDR).
+- **Shader Pipeline**: Compiles GLSL sources into SPIR‑V binaries via [`glslc`](https://github.com/google/shaderc) from the Vulkan SDK.
+- **Frame Rate Control**: `FpsManager.zig` measures delta time and regulates rendering speed.
+- **Single-Step Build & Run**: Orchestrated by Zig’s native build system—just `zig build run`.
 
-## Installation  
+### Requirements
+
+- [Zig](https://ziglang.org/) ≥ 0.14.0
+- [Vulkan SDK](https://vulkan.lunarg.com/) (for `glslc`)
+- C compiler (for SDL3 bindings and stb libraries)
+- Git (for cloning and updates)
+
+### Installation  
 1. Clone the repository:  
    ```bash
    git clone https://github.com/stark26583/Zig-SDL3-GPU-Programming.git
@@ -29,7 +30,7 @@ Zig‑SDL3‑GPU‑Programming is a cross‑platform demo showcasing GPU renderi
    ```  
    This command fetches dependencies (`sdl3`, `zmath`, `zstbi`), compiles shaders to SPIR‑V, builds the executable, and launches the demo citeturn13search1.
 
-## Usage  
+### Usage  
 - **Default demo**: Renders a textured, rotating quad with perspective projection—run via `zig build run`.  
 - **Colorful quad example**:  
   ```bash
@@ -38,42 +39,48 @@ Zig‑SDL3‑GPU‑Programming is a cross‑platform demo showcasing GPU renderi
   Displays a rotating quad with per‑vertex colors (without textures).  
 - **Arguments**: Any additional runtime flags (e.g., window size or toggles) can be passed after `zig build run --`.
 
-## Project Structure  
+Additional runtime flags (e.g., window size) can be passed after `--`.
+
+### Project Structure
+
 ```
 .
-├── build.zig               # Zig build script defining executables and shader steps
-├── build.zig.zon           # Dependency manifest (sdl3, zmath, zstbi)
-├── LICENSE                 # MIT License
+├── build.zig            # Build script: defines executable and shader steps
+├── build.zig.zon        # Dependency manifest (sdl3, zmath, zstbi)
+├── LICENSE              # MIT License
 ├── src
-│   ├── main.zig            # Textured quad demo
-│   ├── main_colorful_quad.zig  # Color‑only quad demo
-│   ├── FpsManager.zig      # Frame rate manager
+│   ├── main.zig         # Textured quad demo
+│   ├── main_colorful_quad.zig  # Color-only quad demo
+│   ├── FpsManager.zig   # Frame timing utility
 │   ├── data
 │   │   └── cobblestone_1.png  # Sample texture
 │   └── shaders
 │       ├── source
-│       │   ├── shader.glsl.vert  # GLSL vertex shader source
-│       │   └── shader.glsl.frag  # GLSL fragment shader source
+│       │   ├── shader.glsl.vert  # Vertex shader source
+│       │   └── shader.glsl.frag  # Fragment shader source
 │       └── compiled
 │           ├── shader.spv.vert   # SPIR‑V vertex shader
 │           └── shader.spv.frag   # SPIR‑V fragment shader
 └── README.md
 ```
 
-## Contributing  
-Contributions are welcome! Please open issues for bug reports or feature requests, and submit pull requests for fixes or enhancements. Ensure new code follows existing style, includes documentation, and passes any provided tests.
+### Contributing
 
-## License  
-This project is released under the [MIT License](LICENSE), allowing unrestricted reuse in both open‑source and proprietary software.
+Contributions are welcome! Please open issues for bugs or feature requests, and submit pull requests. Ensure code follows the existing style and includes documentation.
 
-## References  
-- Zig official website and documentation citeturn9search5  
-- SDL3 overview and latest release citeturn10search9  
-- SPIR‑V specification by Khronos Group citeturn11search8  
-- `zmath` SIMD math library for Zig citeturn8search0  
-- `zstbi` Zig bindings for stb_image citeturn12search0  
-- Zig build system guide citeturn13search0  
-- Vulkan shader modules and `glslc` usage citeturn16search1  
-- Shaderc GitHub repository (includes `glslc`) citeturn16search2  
-- Zig build system examples citeturn13search1  
-- Zig build system best practices citeturn13search2
+### License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+### References
+
+- [Zig Programming Language](https://ziglang.org/)
+- [SDL3 by libsdl-org](https://github.com/libsdl-org/SDL)
+- [zmath SIMD Math Library](https://github.com/zelli/zmath)
+- [zstbi - Zig STB Image](https://github.com/MasterQ32/zstbi)
+- [Vulkan SDK](https://vulkan.lunarg.com/)
+- [glslc Compiler](https://github.com/google/shaderc)
+- [Shaderc GitHub Repository](https://github.com/google/shaderc)
+
