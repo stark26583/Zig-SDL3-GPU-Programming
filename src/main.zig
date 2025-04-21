@@ -281,7 +281,7 @@ pub fn main() !void {
 
         if (!paused) rotation += rotation_speed * fps_manager.getDelta();
         const rot = zmath.rotationY(rotation);
-        const trans = zmath.translation(0.0, -1.0, -2.6);
+        const trans = zmath.translation(0.0, -0.8, -2.6);
         const model_mat = zmath.mul(rot, trans);
         const ubo = UBO{
             .mvp = zmath.mul(model_mat, proj_mat),
