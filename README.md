@@ -31,8 +31,8 @@ A cross-platform demo showcasing GPU rendering in [Zig](https://ziglang.org/) us
    This command fetches dependencies (`sdl3`, `zmath`, `zstbi`), compiles shaders to SPIR‑V, builds the executable, and launches the demo citeturn13search1.
 
 ### Usage  
-- **Default demo**: Renders a textured, rotating quad with perspective projection—run via `zig build run`.  
-- **Colorful quad example**:  
+- **Default demo**: Renders a rotating 3d model of sports car, rotating quad with perspective projection—run via `zig build run`.  
+- **Colorful quad example**:  optional clean up to be done
   ```bash
   zig build run -- main_colorful_quad.zig
   ```  
