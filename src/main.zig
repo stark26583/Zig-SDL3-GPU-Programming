@@ -80,12 +80,11 @@ pub fn main() !void {
     defer sdl3.c.SDL_ReleaseGPUShader(gpu, fragment_shader);
 
     //Create Obj
-    const obj_data = try OBJ.parse(allocator, "src/data/police.obj");
+    const obj_data = try OBJ.parse(allocator, "./data/race.obj");
     defer obj_data.deinit(allocator);
-    // std.debug.print("vertices: {d}\nuvs: {d}\nfaces: {any}\n", .{ obj_data.vertices, obj_data.uvs_tex_coords, obj_data.faces });
 
     //Create Texture
-    var image = try zstbi.Image.loadFromFile("src/data/cobblestone_1.png", 4);
+    var image = try zstbi.Image.loadFromFile("./data/colormap.png", 4);
     defer image.deinit();
     const pixels_byte_size = image.width * image.height * 4;
 
@@ -99,6 +98,18 @@ pub fn main() !void {
         .num_levels = 1,
     });
 
+    const DEPTH_TEXTURE_FORMAT = sdl3.c.SDL_GPU_TEXTUREFORMAT_D24_UNORM;
+    const depth_texture = sdl3.c.SDL_CreateGPUTexture(gpu, &.{
+        .type = sdl3.c.SDL_GPU_TEXTURETYPE_2D,
+        .width = SCREEN_WIDTH,
+        .height = SCREEN_HEIGHT,
+        .format = DEPTH_TEXTURE_FORMAT,
+        .usage = sdl3.c.SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
+        .layer_count_or_depth = 1,
+        .num_levels = 1,
+    });
+    defer sdl3.c.SDL_ReleaseGPUTexture(gpu, depth_texture);
+
     // create vertex data
     const White = Color{ 1.0, 1.0, 1.0, 1.0 };
 
@@ -108,10 +119,11 @@ pub fn main() !void {
     defer allocator.free(indices);
 
     for (obj_data.faces, 0..) |faces, i| {
+        const uv = obj_data.uvs_tex_coords[faces.uv_index];
         vertices[i] = .{
             .pos = obj_data.positions[faces.position_index],
             .color = White,
-            .uv = obj_data.uvs_tex_coords[faces.uv_index],
+            .uv = .{ uv[0], 1 - uv[1] },
         };
 
         indices[i] = @intCast(i);
@@ -252,11 +264,18 @@ pub fn main() !void {
                 .num_vertex_attributes = vertex_attributes.len,
                 .vertex_attributes = vertex_attributes[0..].ptr,
             },
+            .depth_stencil_state = .{
+                .enable_depth_test = true,
+                .enable_depth_write = true,
+                .compare_op = sdl3.c.SDL_GPU_COMPAREOP_LESS,
+            },
             .target_info = .{
                 .num_color_targets = 1,
                 .color_target_descriptions = @ptrCast(&.{sdl3.c.SDL_GPUColorTargetDescription{
                     .format = sdl3.c.SDL_GetGPUSwapchainTextureFormat(gpu, window.value),
                 }}),
+                .has_depth_stencil_target = true,
+                .depth_stencil_format = DEPTH_TEXTURE_FORMAT,
             },
         },
     );
@@ -292,7 +311,7 @@ pub fn main() !void {
 
         if (!paused) rotation += rotation_speed * fps_manager.getDelta();
         const rot = zmath.rotationY(rotation);
-        const trans = zmath.translation(0.0, -0.8, -2.6);
+        const trans = zmath.translation(0.0, -1.0, -3.0);
         const model_mat = zmath.mul(rot, trans);
         const ubo = UBO{
             .mvp = zmath.mul(model_mat, proj_mat),
@@ -312,7 +331,13 @@ pub fn main() !void {
                 .store_op = sdl3.c.SDL_GPU_STOREOP_STORE,
             };
 
-            const render_pass = sdl3.c.SDL_BeginGPURenderPass(cmd_buffer, &color_target, 1, null);
+            const depth_stencil_target_info = sdl3.c.SDL_GPUDepthStencilTargetInfo{
+                .texture = depth_texture,
+                .load_op = sdl3.c.SDL_GPU_LOADOP_CLEAR,
+                .clear_depth = 1.0,
+                .store_op = sdl3.c.SDL_GPU_STOREOP_DONT_CARE,
+            };
+            const render_pass = sdl3.c.SDL_BeginGPURenderPass(cmd_buffer, &color_target, 1, &depth_stencil_target_info);
 
             sdl3.c.SDL_BindGPUGraphicsPipeline(render_pass, pipline);
             const bindings = [_]sdl3.c.SDL_GPUBufferBinding{.{ .buffer = vertex_buffer }};

@@ -26,11 +26,14 @@ pub fn build(b: *std.Build) void {
         // .callbacks = true,
         .ext_image = true,
     });
+
     exe.root_module.addImport("sdl3", sdl3.module("sdl3"));
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
+
+    run_cmd.setCwd(b.path("src/"));
 
     if (b.args) |args| {
         run_cmd.addArgs(args);
