@@ -8,6 +8,6 @@ pub const Vertex = struct {
     color: Color,
     uv: Vec2,
 };
-const UBO = struct {
+pub const UBO = struct {
     mvp: zmath.Mat,
 };
