@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "main",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/main1.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
     const sdl3 = b.dependency("sdl3", .{
         .target = target,
         .optimize = optimize,
-        .callbacks = true,
+        // .callbacks = true,
         .ext_image = true,
     });
 

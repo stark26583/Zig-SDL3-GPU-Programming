@@ -54,36 +54,38 @@ const SCREEN_HEIGHT = 780;
 
 const assert = std.debug.assert;
 
+const GPU = sdl3.gpu;
+
 const AppState = struct {
     init_flags: sdl3.init.Flags = .{ .video = true },
 
     window: sdl3.video.Window,
-    gpu: ?*sdl3.c.SDL_GPUDevice,
+    gpu: GPU.Device,
     fps_manager: FpsManager,
 
-    vertex_shader: ?*sdl3.c.SDL_GPUShader,
-    fragment_shader: ?*sdl3.c.SDL_GPUShader,
+    vertex_shader: GPU.Shader,
+    fragment_shader: GPU.Shader,
 
-    vertex_buffer: ?*sdl3.c.SDL_GPUBuffer,
-    index_buffer: ?*sdl3.c.SDL_GPUBuffer,
-    transfer_buffer: ?*sdl3.c.SDL_GPUTransferBuffer,
+    vertex_buffer: GPU.Buffer,
+    index_buffer: GPU.Buffer,
+    transfer_buffer: GPU.TransferBuffer,
     image_for_texture: zstbi.Image,
-    texture: ?*sdl3.c.SDL_GPUTexture,
-    sampler: ?*sdl3.c.SDL_GPUSampler,
-    depth_texture: ?*sdl3.c.SDL_GPUTexture,
+    texture: GPU.Texture,
+    sampler: GPU.Sampler,
+    depth_texture: GPU.Texture,
 
     obj_data: OBJ.OBJ_Data,
     vertices: []Vertex,
     indices: []u16,
 
-    pipeline: ?*sdl3.c.SDL_GPUGraphicsPipeline,
+    pipeline: GPU.GraphicsPipeline,
 
     paused: bool,
 
-    const DEPTH_TEXTURE_FORMAT = sdl3.c.SDL_GPU_TEXTUREFORMAT_D24_UNORM;
+    const DEPTH_TEXTURE_FORMAT = GPU.TextureFormat.depth24_unorm;
     var indices_len: u32 = 0;
     var rotation: f32 = 0;
-    const rotation_speed: f32 = std.math.degreesToRadians(50);
+    const rotation_speed: f32 = std.math.degreesToRadians(90);
 
     const vertex_shader_code = @embedFile("shaders/compiled/shader.spv.vert");
     const fragment_shader_code = @embedFile("shaders/compiled/shader.spv.frag");
@@ -153,6 +155,7 @@ fn init(
 
     gpa = std.heap.GeneralPurposeAllocator(.{}){};
     allocator = gpa.allocator();
+
     // Prepare app state.
     const state = try allocator.create(AppState);
     errdefer allocator.destroy(state);
@@ -169,32 +172,32 @@ fn init(
     }
 
     const window = try sdl3.video.Window.init("GPU programming", SCREEN_WIDTH, SCREEN_HEIGHT, .{});
-    const gpu = sdl3.c.SDL_CreateGPUDevice(sdl3.c.SDL_GPU_SHADERFORMAT_SPIRV, true, null);
-    assert(sdl3.c.SDL_ClaimWindowForGPUDevice(gpu, window.value));
+    const gpu = try GPU.Device.init(.{ .spirv = true }, true, null);
+    try gpu.claimWindow(window);
 
     zstbi.init(allocator);
 
-    const vertex_shader = loadShader(
+    const vertex_shader = try loadShader(
         gpu,
         AppState.vertex_shader_code,
-        sdl3.c.SDL_GPU_SHADERSTAGE_VERTEX,
+        .vertex,
         1,
         0,
     );
-    const fragment_shader = loadShader(
+    const fragment_shader = try loadShader(
         gpu,
         AppState.fragment_shader_code,
-        sdl3.c.SDL_GPU_SHADERSTAGE_FRAGMENT,
+        .fragment,
         0,
         1,
     );
     //Create Obj
     const obj_data = try OBJ.parse(allocator, "./data/race.obj");
     //Create Texture
-    var image = try zstbi.Image.loadFromFile("./data/colormap.png", 4);
+    const image = try zstbi.Image.loadFromFile("./data/colormap.png", 4);
     const pixels_byte_size = image.width * image.height * 4;
 
-    const texture = sdl3.c.SDL_CreateGPUTexture(gpu, &.{
+    const texture_c = sdl3.c.SDL_CreateGPUTexture(gpu.value, &sdl3.c.SDL_GPUTextureCreateInfo{
         .type = sdl3.c.SDL_GPU_TEXTURETYPE_2D,
         .width = image.width,
         .height = image.height,
@@ -203,15 +206,19 @@ fn init(
         .layer_count_or_depth = 1,
         .num_levels = 1,
     });
-    const depth_texture = sdl3.c.SDL_CreateGPUTexture(gpu, &.{
+    const texture = GPU.Texture{ .value = texture_c orelse unreachable };
+
+    const depth_texture_c = sdl3.c.SDL_CreateGPUTexture(gpu.value, &sdl3.c.SDL_GPUTextureCreateInfo{
         .type = sdl3.c.SDL_GPU_TEXTURETYPE_2D,
         .width = SCREEN_WIDTH,
         .height = SCREEN_HEIGHT,
-        .format = AppState.DEPTH_TEXTURE_FORMAT,
+        .format = @intFromEnum(AppState.DEPTH_TEXTURE_FORMAT),
         .usage = sdl3.c.SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
         .layer_count_or_depth = 1,
         .num_levels = 1,
     });
+    const depth_texture = GPU.Texture{ .value = depth_texture_c orelse unreachable };
+
     // create vertex data
     const White = Color{ 1.0, 1.0, 1.0, 1.0 };
 
@@ -234,147 +241,136 @@ fn init(
     const vertices_byte_size = vertices.len * @sizeOf(@TypeOf(vertices[0]));
     const indices_byte_size = indices.len * @sizeOf(@TypeOf(indices[0]));
     // describe vertex attributes and vertex buffers in pipline
-    const vertex_attributes = [_]sdl3.c.SDL_GPUVertexAttribute{
-        .{
+    const vertex_attributes = [_]GPU.VertexAttribute{
+        GPU.VertexAttribute{
             .location = 0,
-            .format = sdl3.c.SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .format = .f32x3,
             .offset = @offsetOf(Vertex, "pos"),
+            .buffer_slot = 0,
         },
-        .{
+        GPU.VertexAttribute{
             .location = 1,
-            .format = sdl3.c.SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
+            .format = .f32x4,
             .offset = @offsetOf(Vertex, "color"),
+            .buffer_slot = 0,
         },
-        .{
+        GPU.VertexAttribute{
             .location = 2,
-            .format = sdl3.c.SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+            .format = .f32x2,
             .offset = @offsetOf(Vertex, "uv"),
+            .buffer_slot = 0,
         },
     };
 
-    const vertex_buffer_descriptions = [_]sdl3.c.SDL_GPUVertexBufferDescription{
-        .{
+    const vertex_buffer_descriptions = [_]GPU.VertexBufferDescription{
+        GPU.VertexBufferDescription{
             .slot = 0,
             .pitch = @sizeOf(Vertex),
+            .input_rate = .vertex,
         },
     };
     // create vertex buffer
-    const vertex_buffer = sdl3.c.SDL_CreateGPUBuffer(gpu, &.{
-        .usage = sdl3.c.SDL_GPU_BUFFERUSAGE_VERTEX,
+    const vertex_buffer = try gpu.createBuffer(.{
+        .usage = .{ .vertex = true },
         .size = @intCast(vertices_byte_size),
     });
     // create index buffer
-    const index_buffer = sdl3.c.SDL_CreateGPUBuffer(gpu, &.{
-        .usage = sdl3.c.SDL_GPU_BUFFERUSAGE_INDEX,
+    const index_buffer = try gpu.createBuffer(.{
+        .usage = .{ .index = true },
         .size = @intCast(indices_byte_size),
     });
     // Create Transfer Buffer
-    const transfer_buffer = sdl3.c.SDL_CreateGPUTransferBuffer(gpu, &.{
+    const transfer_buffer_c = sdl3.c.SDL_CreateGPUTransferBuffer(gpu.value, &.{
         .usage = sdl3.c.SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
         .size = @intCast(vertices_byte_size + indices_byte_size),
     });
-    const transfer_memory_ptr = sdl3.c.SDL_MapGPUTransferBuffer(gpu, transfer_buffer, false);
-    const vertex_dest_ptr: [*]u8 = @ptrCast(transfer_memory_ptr.?);
-    const vertex_dest_slice = vertex_dest_ptr[0..vertices_byte_size];
-    const index_dest_ptr: [*]u8 = @ptrFromInt(@as(usize, @intFromPtr(vertex_dest_ptr)) + vertices_byte_size);
-    const index_dest_slice = index_dest_ptr[0..indices_byte_size];
-    const vertex_source_ptr: [*]const u8 = @ptrCast(vertices[0..].ptr);
-    const vertex_source_slice = vertex_source_ptr[0..vertices_byte_size];
-    const index_source_ptr: [*]const u8 = @ptrCast(indices[0..].ptr);
-    const index_source_slice = index_source_ptr[0..indices_byte_size];
-    @memcpy(vertex_dest_slice, vertex_source_slice);
-    @memcpy(index_dest_slice, index_source_slice);
-    sdl3.c.SDL_UnmapGPUTransferBuffer(gpu, transfer_buffer);
+    const transfer_buffer = GPU.TransferBuffer{ .value = transfer_buffer_c orelse unreachable };
+    const transfer_memory_ptr = sdl3.c.SDL_MapGPUTransferBuffer(gpu.value, transfer_buffer.value, false);
+    memcpy_into_transfer_buff(transfer_memory_ptr.?, vertices, vertices_byte_size);
+    memcpy_into_transfer_buff(@ptrFromInt(@as(usize, @intFromPtr(transfer_memory_ptr.?)) + vertices_byte_size), indices, indices_byte_size);
+    gpu.unmapTransferBuffer(transfer_buffer);
     // create texture transfer buffer
-    const texture_transfer_buffer = sdl3.c.SDL_CreateGPUTransferBuffer(gpu, &.{
+    const texture_transfer_buffer_c = sdl3.c.SDL_CreateGPUTransferBuffer(gpu.value, &.{
         .usage = sdl3.c.SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
         .size = @intCast(pixels_byte_size),
     });
-    defer sdl3.c.SDL_ReleaseGPUTransferBuffer(gpu, texture_transfer_buffer);
-    const texture_transfer_memory_ptr = sdl3.c.SDL_MapGPUTransferBuffer(gpu, texture_transfer_buffer, false);
-    const texture_dest_ptr: [*]u8 = @ptrCast(texture_transfer_memory_ptr.?);
-    const texture_dest_slice = texture_dest_ptr[0..pixels_byte_size];
-    const texture_source_ptr: [*]const u8 = @ptrCast(image.data[0..].ptr);
-    const texture_source_slice = texture_source_ptr[0..pixels_byte_size];
-    @memcpy(texture_dest_slice, texture_source_slice);
-    sdl3.c.SDL_UnmapGPUTransferBuffer(gpu, texture_transfer_buffer);
+    const texture_transfer_buffer = GPU.TransferBuffer{ .value = texture_transfer_buffer_c orelse unreachable };
+    defer sdl3.c.SDL_ReleaseGPUTransferBuffer(gpu.value, texture_transfer_buffer.value);
+    const texture_transfer_memory_ptr = sdl3.c.SDL_MapGPUTransferBuffer(gpu.value, texture_transfer_buffer.value, false);
+    memcpy_into_transfer_buff(texture_transfer_memory_ptr.?, image.data, pixels_byte_size);
+    gpu.unmapTransferBuffer(texture_transfer_buffer);
 
     // - begin copy pass
-    const copy_cmd_buffer = sdl3.c.SDL_AcquireGPUCommandBuffer(gpu);
-    const copy_pass = sdl3.c.SDL_BeginGPUCopyPass(copy_cmd_buffer);
+    const copy_cmd_buffer = try gpu.aquireCommandBuffer();
+    const copy_pass = copy_cmd_buffer.beginCopyPass();
     // - invoke upload commands
-    sdl3.c.SDL_UploadToGPUBuffer(
-        copy_pass,
-        &.{
+    copy_pass.uploadToBuffer(
+        .{
             .transfer_buffer = transfer_buffer,
             .offset = 0,
         },
-        &.{
+        .{
             .buffer = vertex_buffer,
             .offset = 0,
             .size = @intCast(vertices_byte_size),
         },
         false,
     );
-    sdl3.c.SDL_UploadToGPUBuffer(
-        copy_pass,
-        &.{
+    copy_pass.uploadToBuffer(
+        .{
             .transfer_buffer = transfer_buffer,
             .offset = @intCast(vertices_byte_size),
         },
-        &.{
+        .{
             .buffer = index_buffer,
             .offset = 0,
             .size = @intCast(indices_byte_size),
         },
         false,
     );
+    copy_pass.uploadToTexture(.{
+        .transfer_buffer = texture_transfer_buffer,
+        .offset = 0,
+        .pixels_per_row = 0,
+        .rows_per_layer = 0,
+    }, .{
+        .texture = texture,
+        .width = image.width,
+        .height = image.height,
+        .depth = 1,
+        .layer = 0,
+        .mip_level = 0,
+        .x = 0,
+        .y = 0,
+        .z = 0,
+    }, false);
+    // - end copy pass
+    sdl3.c.SDL_EndGPUCopyPass(copy_pass.value);
+    try copy_cmd_buffer.submit();
 
-    sdl3.c.SDL_UploadToGPUTexture(
-        copy_pass,
-        &.{
-            .transfer_buffer = texture_transfer_buffer,
-        },
-        &.{
-            .texture = texture,
-            .w = image.width,
-            .h = image.height,
-            .d = 1,
-        },
-        false,
-    );
-    sdl3.c.SDL_EndGPUCopyPass(copy_pass);
-    assert(sdl3.c.SDL_SubmitGPUCommandBuffer(copy_cmd_buffer));
+    const sampler = try gpu.createSampler(.{});
 
-    const sampler = sdl3.c.SDL_CreateGPUSampler(gpu, &.{});
-
-    const pipeline = sdl3.c.SDL_CreateGPUGraphicsPipeline(
-        gpu,
-        &sdl3.c.SDL_GPUGraphicsPipelineCreateInfo{
-            .vertex_shader = vertex_shader,
-            .fragment_shader = fragment_shader,
-            .primitive_type = sdl3.c.SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
-            .vertex_input_state = .{
-                .num_vertex_buffers = vertex_buffer_descriptions.len,
-                .vertex_buffer_descriptions = vertex_buffer_descriptions[0..].ptr,
-                .num_vertex_attributes = vertex_attributes.len,
-                .vertex_attributes = vertex_attributes[0..].ptr,
-            },
-            .depth_stencil_state = .{
-                .enable_depth_test = true,
-                .enable_depth_write = true,
-                .compare_op = sdl3.c.SDL_GPU_COMPAREOP_LESS,
-            },
-            .target_info = .{
-                .num_color_targets = 1,
-                .color_target_descriptions = @ptrCast(&.{sdl3.c.SDL_GPUColorTargetDescription{
-                    .format = sdl3.c.SDL_GetGPUSwapchainTextureFormat(gpu, window.value),
-                }}),
-                .has_depth_stencil_target = true,
-                .depth_stencil_format = AppState.DEPTH_TEXTURE_FORMAT,
-            },
+    const pipeline = try gpu.createGraphicsPipeline(.{
+        .vertex_shader = vertex_shader,
+        .fragment_shader = fragment_shader,
+        .primitive_type = .triangle_list,
+        .vertex_input_state = .{
+            .vertex_attributes = vertex_attributes[0..],
+            .vertex_buffer_descriptions = vertex_buffer_descriptions[0..],
         },
-    );
+        .depth_stencil_state = .{
+            .enable_depth_test = true,
+            .enable_depth_write = true,
+            .compare = .less,
+        },
+        .target_info = .{
+            .color_target_descriptions = &.{GPU.ColorTargetDescription{
+                .format = @enumFromInt(sdl3.c.SDL_GetGPUSwapchainTextureFormat(gpu.value, window.value)),
+            }},
+            .depth_stencil_format = AppState.DEPTH_TEXTURE_FORMAT,
+        },
+    });
+
     var w_cint: c_int = undefined;
     var h_cint: c_int = undefined;
     assert(sdl3.c.SDL_GetWindowSize(window.value, &w_cint, &h_cint));
@@ -383,6 +379,7 @@ fn init(
     const h = @as(f32, @floatFromInt(h_cint));
 
     AppState.proj_mat = zmath.perspectiveFovRh(std.math.degreesToRadians(70), w / h, 0.0001, 1000);
+    try gpu.setSwapchainParameters(window, .sdr, .immediate);
 
     state.* = .{
         .init_flags = .{ .video = true },
@@ -423,10 +420,22 @@ fn eventHandler(
     switch (event) {
         .terminating => return .success,
         .quit => return .success,
-        else => {
+        .unknown => {
             if (event.unknown.event_type == sdl3.c.SDL_EVENT_KEY_DOWN) {
-                app_state.paused = !app_state.paused;
+                switch (event.toSdl().key.scancode) {
+                    sdl3.c.SDLK_ESCAPE => return .success,
+                    sdl3.c.SDLK_KP_SPACE => {
+                        app_state.paused = !app_state.paused;
+                    },
+                    sdl3.c.SDLK_KP_F => {
+                        std.debug.print("FPS: {d}\n", .{app_state.fps_manager.getFps()});
+                    },
+                    else => {},
+                }
             }
+            return .run;
+        },
+        else => {
             return .run;
         },
     }
@@ -438,20 +447,22 @@ fn quit(
 ) void {
     _ = result;
     if (app_state) |val| {
-        sdl3.c.SDL_ReleaseGPUGraphicsPipeline(val.gpu, val.pipeline);
-        sdl3.c.SDL_ReleaseGPUTransferBuffer(val.gpu, val.transfer_buffer);
+        val.gpu.releaseGraphicsPipeline(val.pipeline);
+        val.gpu.releaseTransferBuffer(val.transfer_buffer);
 
-        sdl3.c.SDL_ReleaseGPUBuffer(val.gpu, val.index_buffer);
-        sdl3.c.SDL_ReleaseGPUBuffer(val.gpu, val.vertex_buffer);
+        sdl3.c.SDL_ReleaseGPUBuffer(val.gpu.value, val.index_buffer.value);
+        sdl3.c.SDL_ReleaseGPUBuffer(val.gpu.value, val.vertex_buffer.value);
         allocator.free(val.indices);
         allocator.free(val.vertices);
-        sdl3.c.SDL_ReleaseGPUTexture(val.gpu, val.depth_texture);
-        sdl3.c.SDL_ReleaseGPUTexture(val.gpu, val.texture);
+        val.gpu.releaseTexture(val.depth_texture);
+        val.gpu.releaseTexture(val.texture);
         val.image_for_texture.deinit();
         val.obj_data.deinit(allocator);
-        sdl3.c.SDL_ReleaseGPUShader(val.gpu, val.fragment_shader);
-        sdl3.c.SDL_ReleaseGPUShader(val.gpu, val.vertex_shader);
-        // defer sdl3.c.SDL_DestroyGPUDevice(gpu);
+        val.gpu.releaseSampler(val.sampler);
+        val.gpu.releaseShader(val.vertex_shader);
+        val.gpu.releaseShader(val.fragment_shader);
+        val.gpu.releaseWindow(val.window);
+        val.gpu.deinit();
         val.window.deinit();
         zstbi.deinit();
         sdl3.init.quit(val.init_flags);
@@ -472,60 +483,87 @@ fn update(
     //Draw Code
     if (!app_state.paused) AppState.rotation += AppState.rotation_speed * app_state.fps_manager.getDelta();
     const rot = zmath.rotationY(AppState.rotation);
-    const trans = zmath.translation(0.0, -1.0, -3.0);
+    const trans = zmath.translation(0.0, 0.0, 0.0);
+    const view = zmath.lookAtRh(.{ 0, 0, -3, 1 }, .{ 0, 0, 0, 1 }, .{ 0, 1, 0, 0 });
+
     const model_mat = zmath.mul(rot, trans);
+    const mv_mat = zmath.mul(model_mat, view);
     const ubo = UBO{
-        .mvp = zmath.mul(model_mat, AppState.proj_mat),
+        .mvp = zmath.mul(mv_mat, AppState.proj_mat),
     };
 
     // render
-    const cmd_buffer = sdl3.c.SDL_AcquireGPUCommandBuffer(app_state.gpu);
-    var swapchain_texture: ?*sdl3.c.SDL_GPUTexture = undefined;
-    assert(sdl3.c.SDL_WaitAndAcquireGPUSwapchainTexture(cmd_buffer, app_state.window.value, &swapchain_texture, null, null));
+    const cmd_buffer = try app_state.gpu.aquireCommandBuffer();
+    const swapchain = try cmd_buffer.waitAndAquireSwapchainTexture(app_state.window);
 
     //Begin render pass
-    if (swapchain_texture) |swapchain_tex| {
-        const color_target = sdl3.c.SDL_GPUColorTargetInfo{
+    if (swapchain.texture) |swapchain_tex| {
+        const color_target = GPU.ColorTargetInfo{
             .texture = swapchain_tex,
-            .load_op = sdl3.c.SDL_GPU_LOADOP_CLEAR,
+            .load = .load,
             .clear_color = .{ .r = 0.1, .g = 0.1, .b = 0.1, .a = 1.0 },
-            .store_op = sdl3.c.SDL_GPU_STOREOP_STORE,
+            .store = .store,
         };
 
-        const depth_stencil_target_info = sdl3.c.SDL_GPUDepthStencilTargetInfo{
+        const depth_stencil_target_info = GPU.DepthStencilTargetInfo{
             .texture = app_state.depth_texture,
-            .load_op = sdl3.c.SDL_GPU_LOADOP_CLEAR,
+            .load = .load,
             .clear_depth = 1.0,
-            .store_op = sdl3.c.SDL_GPU_STOREOP_DONT_CARE,
+            .store = .do_not_care,
+            .cycle = false,
+            .clear_stencil = 0,
+            .stencil_load = .do_not_care,
+            .stencil_store = .do_not_care,
         };
-        const render_pass = sdl3.c.SDL_BeginGPURenderPass(cmd_buffer, &color_target, 1, &depth_stencil_target_info);
+        const render_pass = cmd_buffer.beginRenderPass(&.{color_target}, depth_stencil_target_info);
 
-        sdl3.c.SDL_BindGPUGraphicsPipeline(render_pass, app_state.pipeline);
-        const bindings = [_]sdl3.c.SDL_GPUBufferBinding{.{ .buffer = app_state.vertex_buffer }};
-        sdl3.c.SDL_BindGPUVertexBuffers(render_pass, 0, bindings[0..].ptr, 1);
-        const index_binding: sdl3.c.SDL_GPUBufferBinding = .{ .buffer = app_state.index_buffer };
-        sdl3.c.SDL_BindGPUIndexBuffer(render_pass, &index_binding, sdl3.c.SDL_GPU_INDEXELEMENTSIZE_16BIT);
-        sdl3.c.SDL_PushGPUVertexUniformData(cmd_buffer, 0, &ubo, @sizeOf(@TypeOf(ubo)));
-        const fragment_samplers_bindings = [_]sdl3.c.SDL_GPUTextureSamplerBinding{.{ .texture = app_state.texture, .sampler = app_state.sampler }};
-        sdl3.c.SDL_BindGPUFragmentSamplers(render_pass, 0, fragment_samplers_bindings[0..].ptr, 1);
-        sdl3.c.SDL_DrawGPUIndexedPrimitives(render_pass, AppState.indices_len, 1, 0, 0, 0);
-        sdl3.c.SDL_EndGPURenderPass(render_pass);
+        render_pass.bindGraphicsPipeline(app_state.pipeline);
+
+        const bindings = [_]GPU.BufferBinding{.{ .buffer = app_state.vertex_buffer, .offset = 0 }};
+        render_pass.bindVertexBuffers(0, bindings[0..]);
+        render_pass.bindIndexBuffer(.{ .buffer = app_state.index_buffer, .offset = 0 }, .indices_16bit);
+
+        sdl3.c.SDL_PushGPUVertexUniformData(cmd_buffer.value, 0, &ubo, @sizeOf(@TypeOf(ubo)));
+
+        const fragment_samplers_bindings = [_]GPU.TextureSamplerBinding{.{ .texture = app_state.texture, .sampler = app_state.sampler }};
+        render_pass.bindFragmentSamplers(0, fragment_samplers_bindings[0..]);
+
+        sdl3.c.SDL_DrawGPUIndexedPrimitives(render_pass.value, AppState.indices_len, 1, 0, 0, 0);
+        sdl3.c.SDL_EndGPURenderPass(render_pass.value);
     }
-    assert(sdl3.c.SDL_SubmitGPUCommandBuffer(cmd_buffer));
+    try cmd_buffer.submit();
     return .run;
 }
 
-fn loadShader(device: ?*sdl3.c.SDL_GPUDevice, code: []const u8, stage: sdl3.c.SDL_GPUShaderStage, num_uniform_buffers: u32, num_samplers: u32) ?*sdl3.c.SDL_GPUShader {
-    return sdl3.c.SDL_CreateGPUShader(
-        device,
-        &sdl3.c.SDL_GPUShaderCreateInfo{
-            .code_size = code.len,
-            .code = @ptrCast(code),
-            .entrypoint = "main",
-            .format = sdl3.c.SDL_GPU_SHADERFORMAT_SPIRV,
-            .stage = stage,
-            .num_uniform_buffers = num_uniform_buffers,
-            .num_samplers = num_samplers,
-        },
-    );
+// fn loadShader(device: ?*sdl3.c.SDL_GPUDevice, code: []const u8, stage: sdl3.c.SDL_GPUShaderStage, num_uniform_buffers: u32, num_samplers: u32) ?*sdl3.c.SDL_GPUShader {
+//     return sdl3.c.SDL_CreateGPUShader(
+//         device,
+//         &sdl3.c.SDL_GPUShaderCreateInfo{
+//             .code_size = code.len,
+//             .code = @ptrCast(code),
+//             .entrypoint = "main",
+//             .format = sdl3.c.SDL_GPU_SHADERFORMAT_SPIRV,
+//             .stage = stage,
+//             .num_uniform_buffers = num_uniform_buffers,
+//             .num_samplers = num_samplers,
+//         },
+//     );
+// }
+fn loadShader(device: GPU.Device, code: []const u8, stage: GPU.ShaderStage, num_uniform_buffers: u32, num_samplers: u32) !GPU.Shader {
+    return try device.createShader(.{
+        .format = .{ .spirv = true },
+        .code = code,
+        .entry_point = "main",
+        .stage = stage,
+        .num_uniform_buffers = num_uniform_buffers,
+        .num_samplers = num_samplers,
+    });
+}
+
+fn memcpy_into_transfer_buff(dest: *anyopaque, src_data: anytype, size: usize) void {
+    const dest_ptr: [*]u8 = @ptrCast(dest);
+    const dest_slice = dest_ptr[0..size];
+    const source_ptr: [*]const u8 = @ptrCast(src_data[0..].ptr);
+    const source_slice = source_ptr[0..size];
+    @memcpy(dest_slice, source_slice);
 }

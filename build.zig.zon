@@ -4,7 +4,7 @@
     .dependencies = .{
         .sdl3 = .{
             .url = "https://github.com/Gota7/zig-sdl3/archive/refs/heads/master.zip",
-            .hash = "sdl3-0.0.1-NmT1Q2U-EQD7Kco_8zqanC5TC4SzW1n-AMQthImkDWpW",
+            .hash = "sdl3-0.0.1-NmT1Qzv8EwBtaVNIAUBsLbxi158ddwVpwQFhWv4Hgi8p",
         },
         .zmath = .{
             .url = "git+https://github.com/zig-gamedev/zmath.git#ccf7297ef6c01e21b2d51ad81b5b6ce929e86a00",
