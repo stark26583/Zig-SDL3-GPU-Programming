@@ -33,17 +33,17 @@ pub fn main() !void {
 //------------------------------------------------------------
 // Application Context
 const App = struct {
-    const SCREEN_WIDTH = 1280;
-    const SCREEN_HEIGHT = 780;
+    const SCREEN_WIDTH = 1680;
+    const SCREEN_HEIGHT = 880;
     const vertex_shader_code = @embedFile("shaders/compiled/shader.spv.vert");
     const fragment_shader_code = @embedFile("shaders/compiled/shader.spv.frag");
     const DEPTH_TEXTURE_FORMAT = gpu.TextureFormat.depth24_unorm;
-
-    // var font: zgui.Font = undefined;
+    var driver_name: [:0]const u8 = undefined;
 
     var clear_color: Vec3 = .{ 0, 0, 0 };
 
     var proj_mat: zmath.Mat = undefined;
+    var present_mode: gpu.PresentMode = .vsync;
 
     allocator: std.mem.Allocator,
     window: sdl3.video.Window,
@@ -84,6 +84,15 @@ const App = struct {
         const device = try gpu.Device.init(.{ .spirv = true }, true, null);
         try device.claimWindow(window);
 
+        driver_name = try device.getDriver();
+
+        _ = zgui.io.addFontFromFile("./fonts/Candara.ttf", std.math.floor(21 * try window.getDisplayScale()));
+        zgui_sdl.init(window.value, .{
+            .device = device.value,
+            .color_target_format = @intFromEnum(device.getSwapchainTextureFormat(window)),
+            .msaa_samples = 0,
+        });
+
         const vertex_shader = try loadShader(
             device,
             vertex_shader_code,
@@ -109,17 +118,6 @@ const App = struct {
         });
 
         const pipeline = try setup_pipline(device, window, vertex_shader, fragment_shader, App.DEPTH_TEXTURE_FORMAT);
-
-        zgui_sdl.init(window.value, .{
-            .device = device.value,
-            .color_target_format = @intFromEnum(device.getSwapchainTextureFormat(window)),
-            .msaa_samples = 0,
-        });
-
-        // font = zgui.io.addFontFromFile(
-        //     "./fonts/Candara.ttf",
-        //     40,
-        // );
 
         const w: f32 = @floatFromInt(SCREEN_WIDTH);
         const h: f32 = @floatFromInt(SCREEN_HEIGHT);
@@ -148,9 +146,19 @@ const App = struct {
     fn render(self: *App) !void {
         //---------------------------------------------------------------------------------------
         zgui_sdl.newFrame(SCREEN_WIDTH, SCREEN_HEIGHT, 1);
+        zgui.showDemoWindow(null);
         if (zgui.begin("Inspector", .{})) {
+            zgui.text("GPU: {s}", .{driver_name});
             zgui.text("FPS: {d}", .{self.fps_manager.getFps()});
             zgui.text("Delta: {d}", .{self.fps_manager.getDelta()});
+            if (zgui.comboFromEnum("Render Mode", &present_mode)) {
+                try self.device.setSwapchainParameters(self.window, .sdr, present_mode);
+            }
+
+            // zgui.endCombo();
+            if (zgui.button("Pause", .{})) {
+                self.model.rotation_speed = 0;
+            }
             _ = zgui.sliderAngle("Model Rotation Speed", .{ .vrad = &self.model.rotation_speed, .deg_max = 180, .deg_min = -180 });
             _ = zgui.colorEdit3("Clear Color", .{ .col = &clear_color });
         }
