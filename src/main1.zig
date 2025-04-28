@@ -38,7 +38,10 @@ const App = struct {
     const vertex_shader_code = @embedFile("shaders/compiled/shader.spv.vert");
     const fragment_shader_code = @embedFile("shaders/compiled/shader.spv.frag");
     const DEPTH_TEXTURE_FORMAT = gpu.TextureFormat.depth24_unorm;
+
     // var font: zgui.Font = undefined;
+
+    var clear_color: Vec3 = .{ 0, 0, 0 };
 
     var proj_mat: zmath.Mat = undefined;
 
@@ -66,7 +69,7 @@ const App = struct {
             if (!self.events()) break;
 
             self.update(self.fps_manager.getDelta());
-            try self.render(.{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 });
+            try self.render();
         }
     }
 
@@ -77,6 +80,7 @@ const App = struct {
         zgui.init(allocator);
 
         const window = try sdl3.video.Window.init("GPU programming", SCREEN_WIDTH, SCREEN_HEIGHT, .{});
+
         const device = try gpu.Device.init(.{ .spirv = true }, true, null);
         try device.claimWindow(window);
 
@@ -141,13 +145,16 @@ const App = struct {
         };
     }
 
-    fn render(self: *App, clear_color: sdl3.pixels.FColor) !void {
+    fn render(self: *App) !void {
         //---------------------------------------------------------------------------------------
         zgui_sdl.newFrame(SCREEN_WIDTH, SCREEN_HEIGHT, 1);
-        // zgui.text("DepthTexture.format = {any}\n", .{self.depth_texture});
-        // zgui.text("Pipeline target_info.depth_stencil_format = {any}\n", .{App.DEPTH_TEXTURE_FORMAT});
-        // zgui.text("window swapchain texture format {any}", .{self.device.getSwapchainTextureFormat(self.window)});
-        zgui.showDemoWindow(null);
+        if (zgui.begin("Inspector", .{})) {
+            zgui.text("FPS: {d}", .{self.fps_manager.getFps()});
+            zgui.text("Delta: {d}", .{self.fps_manager.getDelta()});
+            _ = zgui.sliderAngle("Model Rotation Speed", .{ .vrad = &self.model.rotation_speed, .deg_max = 180, .deg_min = -180 });
+            _ = zgui.colorEdit3("Clear Color", .{ .col = &clear_color });
+        }
+        zgui.end();
         //---------------------------------------------------------------------------------------
 
         const cmd_buffer = try self.device.aquireCommandBuffer();
@@ -160,7 +167,7 @@ const App = struct {
             const color_target = gpu.ColorTargetInfo{
                 .texture = swapchain_tex,
                 .load = .clear,
-                .clear_color = clear_color,
+                .clear_color = .{ .r = clear_color[0], .g = clear_color[1], .b = clear_color[2], .a = 1 },
             };
 
             const depth_target = gpu.DepthStencilTargetInfo{
@@ -200,8 +207,13 @@ const App = struct {
         _ = self;
         var event: sdl3.c.SDL_Event = undefined;
         while (sdl3.c.SDL_PollEvent(&event)) {
-            const zgui_event = zgui_sdl.processEvent(&event); //----------------------------------
-            _ = zgui_event;
+            const guiConsumed = zgui_sdl.processEvent(&event);
+            _ = guiConsumed;
+
+            const io = zgui.io;
+            if (io.getWantCaptureMouse() or io.getWantCaptureKeyboard() or io.getWantTextInput()) {
+                continue;
+            }
             switch (event.type) {
                 sdl3.c.SDL_EVENT_QUIT => {
                     return false;
