@@ -20,6 +20,14 @@ pub fn build(b: *std.Build) void {
     const zstbi = b.dependency("zstbi", .{});
     exe.root_module.addImport("zstbi", zstbi.module("root"));
 
+    const zgui = b.dependency("zgui", .{
+        .backend = .sdl3_gpu,
+        .shared = false,
+        .with_implot = true,
+    });
+    exe.root_module.addImport("zgui", zgui.module("root"));
+    exe.linkLibrary(zgui.artifact("imgui"));
+
     const sdl3 = b.dependency("sdl3", .{
         .target = target,
         .optimize = optimize,

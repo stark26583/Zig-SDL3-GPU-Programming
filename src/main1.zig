@@ -2,7 +2,10 @@ const std = @import("std");
 const sdl3 = @import("sdl3");
 const zmath = @import("zmath");
 const zstbi = @import("zstbi");
+const zgui = @import("zgui");
+const zgui_sdl = zgui.backend;
 const FpsManager = @import("FpsManager.zig");
+const Scancode = sdl3.Scancode;
 const OBJ = @import("OBJ.zig");
 const gpu = sdl3.gpu;
 
@@ -35,6 +38,7 @@ const App = struct {
     const vertex_shader_code = @embedFile("shaders/compiled/shader.spv.vert");
     const fragment_shader_code = @embedFile("shaders/compiled/shader.spv.frag");
     const DEPTH_TEXTURE_FORMAT = gpu.TextureFormat.depth24_unorm;
+    // var font: zgui.Font = undefined;
 
     var proj_mat: zmath.Mat = undefined;
 
@@ -67,12 +71,15 @@ const App = struct {
     }
 
     pub fn init(allocator: std.mem.Allocator) !App {
-        try sdl3.init.init(.{ .video = true });
+        try sdl3.init.init(.{ .video = true, .events = true });
         sdl3.log.setAllPriorities(.info);
         zstbi.init(allocator);
+        zgui.init(allocator);
+
         const window = try sdl3.video.Window.init("GPU programming", SCREEN_WIDTH, SCREEN_HEIGHT, .{});
         const device = try gpu.Device.init(.{ .spirv = true }, true, null);
         try device.claimWindow(window);
+
         const vertex_shader = try loadShader(
             device,
             vertex_shader_code,
@@ -88,7 +95,7 @@ const App = struct {
             1,
         );
         const depth_texture = try device.createTexture(.{
-            // .texture_type = .two_dimensional //default
+            .texture_type = .two_dimensional, //default
             .width = SCREEN_WIDTH,
             .height = SCREEN_HEIGHT,
             .format = App.DEPTH_TEXTURE_FORMAT,
@@ -98,6 +105,17 @@ const App = struct {
         });
 
         const pipeline = try setup_pipline(device, window, vertex_shader, fragment_shader, App.DEPTH_TEXTURE_FORMAT);
+
+        zgui_sdl.init(window.value, .{
+            .device = device.value,
+            .color_target_format = @intFromEnum(device.getSwapchainTextureFormat(window)),
+            .msaa_samples = 0,
+        });
+
+        // font = zgui.io.addFontFromFile(
+        //     "./fonts/Candara.ttf",
+        //     40,
+        // );
 
         const w: f32 = @floatFromInt(SCREEN_WIDTH);
         const h: f32 = @floatFromInt(SCREEN_HEIGHT);
@@ -114,7 +132,7 @@ const App = struct {
             .pipeline = pipeline,
             .depth_texture = depth_texture,
             .ubo = UBO{ .mvp = zmath.identity() },
-            .model = try Model.load(device, allocator, "data/ambulance.obj", "data/colormap.png"),
+            .model = try Model.load(device, allocator, "./data/ambulance.obj", "data/colormap.png"),
             .camera = Camera{
                 .position = .{ 0, 1, 3, 1 },
                 .target = .{ 0, 1, 0, 1 },
@@ -124,12 +142,20 @@ const App = struct {
     }
 
     fn render(self: *App, clear_color: sdl3.pixels.FColor) !void {
-        const cmd_buffer = try self.device.aquireCommandBuffer();
+        //---------------------------------------------------------------------------------------
+        zgui_sdl.newFrame(SCREEN_WIDTH, SCREEN_HEIGHT, 1);
+        // zgui.text("DepthTexture.format = {any}\n", .{self.depth_texture});
+        // zgui.text("Pipeline target_info.depth_stencil_format = {any}\n", .{App.DEPTH_TEXTURE_FORMAT});
+        // zgui.text("window swapchain texture format {any}", .{self.device.getSwapchainTextureFormat(self.window)});
+        zgui.showDemoWindow(null);
+        //---------------------------------------------------------------------------------------
 
+        const cmd_buffer = try self.device.aquireCommandBuffer();
         const swapchain = try cmd_buffer.waitAndAquireSwapchainTexture(self.window);
 
-        if (swapchain.texture) |swapchain_tex| {
+        zgui.render(); //--------------------Render Zgui----------------------
 
+        if (swapchain.texture) |swapchain_tex| {
             //Begin render pass
             const color_target = gpu.ColorTargetInfo{
                 .texture = swapchain_tex,
@@ -141,25 +167,41 @@ const App = struct {
                 .texture = self.depth_texture,
                 .load = .clear,
                 .store = .do_not_care,
-                .stencil_load = .load,
-                .stencil_store = .store,
+                .stencil_load = @enumFromInt(0),
+                .stencil_store = @enumFromInt(0),
                 .clear_stencil = 0,
                 .clear_depth = 1,
                 .cycle = false,
             };
 
             self.push_uniform_data_to_gpu(cmd_buffer);
+
             const render_pass = cmd_buffer.beginRenderPass(&.{color_target}, depth_target);
             render_pass.bindGraphicsPipeline(self.pipeline);
             self.model.render(render_pass);
+
             render_pass.end();
+            //----------------------Zgui RenderPass----------------------
+            zgui_sdl.prepareDrawData(cmd_buffer.value);
+            const zgui_color_target = gpu.ColorTargetInfo{
+                .texture = swapchain_tex,
+                .load = .load,
+            };
+            const zgui_render_pass = cmd_buffer.beginRenderPass(&.{zgui_color_target}, null);
+            zgui_sdl.renderDrawData(cmd_buffer.value, zgui_render_pass.value, null);
+            // zgui_sdl.render();
+            zgui_render_pass.end();
+            //------------------------------------------------------------
         }
         try cmd_buffer.submit();
     }
 
     fn events(self: *App) bool {
+        _ = self;
         var event: sdl3.c.SDL_Event = undefined;
         while (sdl3.c.SDL_PollEvent(&event)) {
+            const zgui_event = zgui_sdl.processEvent(&event); //----------------------------------
+            _ = zgui_event;
             switch (event.type) {
                 sdl3.c.SDL_EVENT_QUIT => {
                     return false;
@@ -168,34 +210,36 @@ const App = struct {
                     return false;
                 },
                 sdl3.c.SDL_EVENT_KEY_DOWN => {
-                    if (event.key.scancode == sdl3.c.SDL_SCANCODE_SPACE) {
-                        self.paused = !self.paused;
+                    const scancode = Scancode{ .value = @intCast(event.key.scancode) };
+                    if (Scancode.space.matches(scancode)) {
+                        Model.paused = !Model.paused;
                         std.debug.print("Mass space\n", .{});
                     }
-                    if (event.key.scancode == sdl3.c.SDL_SCANCODE_W) {
+                    if (Scancode.w.matches(scancode)) {
                         Camera.w_pressed = true;
                     }
-                    if (event.key.scancode == sdl3.c.SDL_SCANCODE_A) {
+                    if (Scancode.a.matches(scancode)) {
                         Camera.a_pressed = true;
                     }
-                    if (event.key.scancode == sdl3.c.SDL_SCANCODE_S) {
+                    if (Scancode.s.matches(scancode)) {
                         Camera.s_pressed = true;
                     }
-                    if (event.key.scancode == sdl3.c.SDL_SCANCODE_D) {
+                    if (Scancode.d.matches(scancode)) {
                         Camera.d_pressed = true;
                     }
                 },
                 sdl3.c.SDL_EVENT_KEY_UP => {
-                    if (event.key.scancode == sdl3.c.SDL_SCANCODE_W) {
+                    const scancode = Scancode{ .value = @intCast(event.key.scancode) };
+                    if (Scancode.w.matches(scancode)) {
                         Camera.w_pressed = false;
                     }
-                    if (event.key.scancode == sdl3.c.SDL_SCANCODE_A) {
+                    if (Scancode.a.matches(scancode)) {
                         Camera.a_pressed = false;
                     }
-                    if (event.key.scancode == sdl3.c.SDL_SCANCODE_S) {
+                    if (Scancode.s.matches(scancode)) {
                         Camera.s_pressed = false;
                     }
-                    if (event.key.scancode == sdl3.c.SDL_SCANCODE_D) {
+                    if (Scancode.d.matches(scancode)) {
                         Camera.d_pressed = false;
                     }
                 },
@@ -213,11 +257,9 @@ const App = struct {
 
     fn update(self: *App, delta: f32) void {
         self.fps_manager.tick();
-        if (!self.paused) {
-            self.model.update(delta);
-            self.camera.update(.boring, delta);
-            self.update_mvp();
-        }
+        self.model.update(delta);
+        self.camera.update(.boring, delta);
+        self.update_mvp();
     }
 
     fn deinit(self: *App) void {
@@ -227,10 +269,13 @@ const App = struct {
         self.device.releaseShader(self.fragment_shader);
         self.device.releaseShader(self.vertex_shader);
         self.device.releaseWindow(self.window);
+        zgui_sdl.deinit();
         self.device.deinit();
         self.window.deinit();
         zstbi.deinit();
-        sdl3.init.quit(.{ .video = true });
+
+        zgui.deinit();
+        sdl3.init.quit(.{ .video = true, .events = true });
     }
 
     fn push_uniform_data_to_gpu(self: *App, cmd_buffer: gpu.CommandBuffer) void {
@@ -250,6 +295,8 @@ const Camera = struct {
     var a_pressed: bool = false;
     var s_pressed: bool = false;
     var d_pressed: bool = false;
+
+    // var mouse
 
     var vel: f32 = 5;
     const eye_height: f32 = 1;
@@ -286,6 +333,7 @@ const Camera = struct {
 };
 
 const Model = struct {
+    var paused = false;
     vertex_buffer: gpu.Buffer,
     index_buffer: gpu.Buffer,
     texture: gpu.Texture,
@@ -295,7 +343,7 @@ const Model = struct {
     mat: zmath.Mat = undefined,
 
     rotation: f32 = 0,
-    rotation_speed: f32 = std.math.degreesToRadians(1),
+    rotation_speed: f32 = std.math.degreesToRadians(90),
 
     pub fn load(device: gpu.Device, allocator: std.mem.Allocator, obj_path: []const u8, texture_path: [:0]const u8) !Model {
         //Create Obj
@@ -454,7 +502,7 @@ const Model = struct {
     }
 
     fn update(self: *Model, delta: f32) void {
-        self.rotation += self.rotation_speed * delta;
+        if (!paused) self.rotation += self.rotation_speed * delta;
         const rot = zmath.rotationY(self.rotation);
         const trans = zmath.translation(0, 0, 0);
         const model_mat = zmath.mul(rot, trans);
@@ -507,6 +555,7 @@ fn setup_pipline(device: gpu.Device, window: sdl3.video.Window, vertex_shader: g
                 .enable_depth_write = true,
                 .compare = .less,
             },
+            .rasterizer_state = .{ .cull_mode = .back },
             .target_info = .{
                 .color_target_descriptions = &[_]gpu.ColorTargetDescription{
                     .{

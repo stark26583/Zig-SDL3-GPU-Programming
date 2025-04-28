@@ -14,6 +14,10 @@
             .url = "git+https://github.com/zig-gamedev/zstbi#094c4bba5cdbec167d3f6aaa98cccccd5c99145f",
             .hash = "zstbi-0.11.0-dev-L0Ea_-eVBwCl8RYA98PhLDw3Fhw5k7FJOHSMDKWDOvqx",
         },
+        .zgui = .{
+            .url = "git+https://github.com/zig-gamedev/zgui#7ac0630658ee2d285893603aca3945461d181beb",
+            .hash = "zgui-0.6.0-dev--L6sZG-baABjJ9Gcf2XU_VpTLmn4nNwq7alHKDRT_BW9",
+        },
     },
     .paths = .{
         "build.zig",
