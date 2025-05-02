@@ -3,8 +3,8 @@
     .version = "0.0.0",
     .dependencies = .{
         .sdl3 = .{
-            .url = "https://github.com/Gota7/zig-sdl3/archive/refs/heads/master.zip",
-            .hash = "sdl3-0.0.1-NmT1Qzv8EwBtaVNIAUBsLbxi158ddwVpwQFhWv4Hgi8p",
+            .url = "git+https://github.com/Gota7/zig-sdl3#2f51d14eb9122653171536684013d770dedf6f01",
+            .hash = "sdl3-0.0.1-NmT1Q6EDFgD6ERqlU_pqcK9srTKvgwPXjI612uQ_QxMZ",
         },
         .zmath = .{
             .url = "git+https://github.com/zig-gamedev/zmath.git#ccf7297ef6c01e21b2d51ad81b5b6ce929e86a00",
@@ -17,6 +17,10 @@
         .zgui = .{
             .url = "git+https://github.com/zig-gamedev/zgui#7ac0630658ee2d285893603aca3945461d181beb",
             .hash = "zgui-0.6.0-dev--L6sZG-baABjJ9Gcf2XU_VpTLmn4nNwq7alHKDRT_BW9",
+        },
+        .zmesh = .{
+            .url = "git+https://github.com/zig-gamedev/zmesh#f8f528128704ae879a16ddb0a3470c5e0a144a20",
+            .hash = "zmesh-0.11.0-dev-oO3A5gx7CgCBPHsGeuNzwzXAyEvs57u39AD5EUZTScli",
         },
     },
     .paths = .{

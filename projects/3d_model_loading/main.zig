@@ -4,12 +4,13 @@ const zmath = @import("zmath");
 const zstbi = @import("zstbi");
 const zgui = @import("zgui");
 const zgui_sdl = zgui.backend;
+const zmesh = @import("zmesh");
 const FpsManager = @import("FpsManager.zig");
 const Scancode = sdl3.Scancode;
-const OBJ = @import("OBJ.zig");
 const gpu = sdl3.gpu;
 
 const CommonTypes = @import("CommonTypes.zig");
+const Vec2 = CommonTypes.Vec2;
 const Vec3 = CommonTypes.Vec3;
 const Color = CommonTypes.Color;
 const Vertex = CommonTypes.Vertex;
@@ -44,6 +45,8 @@ const App = struct {
 
     var proj_mat: zmath.Mat = undefined;
     var present_mode: gpu.PresentMode = .vsync;
+    var pipline_primitive: gpu.PrimitiveType = .triangle_list;
+    var obj_files_path: [][:0]const u8 = undefined;
 
     allocator: std.mem.Allocator,
     window: sdl3.video.Window,
@@ -62,7 +65,7 @@ const App = struct {
     camera: Camera,
 
     // Model
-    model: Model,
+    model: ?Model,
 
     fn run(self: *App) !void {
         while (true) {
@@ -78,6 +81,7 @@ const App = struct {
         sdl3.log.setAllPriorities(.info);
         zstbi.init(allocator);
         zgui.init(allocator);
+        // zmesh.init(allocator);
 
         const window = try sdl3.video.Window.init("GPU programming", SCREEN_WIDTH, SCREEN_HEIGHT, .{});
 
@@ -92,6 +96,8 @@ const App = struct {
             .color_target_format = @intFromEnum(device.getSwapchainTextureFormat(window)),
             .msaa_samples = 0,
         });
+
+        obj_files_path = try OBJ.obj_files_in_specified_dir(allocator, "./data");
 
         const vertex_shader = try loadShader(
             device,
@@ -117,11 +123,12 @@ const App = struct {
             .num_levels = 1,
         });
 
-        const pipeline = try setup_pipline(device, window, vertex_shader, fragment_shader, App.DEPTH_TEXTURE_FORMAT);
+        const pipeline = try setup_pipline(device, window, vertex_shader, fragment_shader, App.DEPTH_TEXTURE_FORMAT, pipline_primitive);
 
         const w: f32 = @floatFromInt(SCREEN_WIDTH);
         const h: f32 = @floatFromInt(SCREEN_HEIGHT);
-        App.proj_mat = zmath.perspectiveFovRh(std.math.degreesToRadians(70), w / h, 0.0001, 1000);
+        App.proj_mat = zmath.perspectiveFovRhGl(std.math.degreesToRadians(70), w / h, 0.0001, 1000);
+        // App.proj_mat = zmath.orthographicOffCenterLh(2, 2, 2, 2, 0.0001, 1000);
 
         return App{
             .allocator = allocator,
@@ -134,7 +141,7 @@ const App = struct {
             .pipeline = pipeline,
             .depth_texture = depth_texture,
             .ubo = UBO{ .mvp = zmath.identity() },
-            .model = try Model.load(device, allocator, "./data/ambulance.obj", "data/colormap.png"),
+            .model = null,
             .camera = Camera{
                 .position = .{ 0, 1, 3, 1 },
                 .target = .{ 0, 1, 0, 1 },
@@ -146,22 +153,76 @@ const App = struct {
     fn render(self: *App) !void {
         //---------------------------------------------------------------------------------------
         zgui_sdl.newFrame(SCREEN_WIDTH, SCREEN_HEIGHT, 1);
-        zgui.showDemoWindow(null);
-        if (zgui.begin("Inspector", .{})) {
+        if (zgui.begin("Debug", .{})) {
             zgui.text("GPU: {s}", .{driver_name});
             zgui.text("FPS: {d}", .{self.fps_manager.getFps()});
             zgui.text("Delta: {d}", .{self.fps_manager.getDelta()});
+            _ = zgui.colorEdit3("Clear Color", .{ .col = &clear_color });
+
+            // const static = struct {
+            //     var values: [90]f32 = [_]f32{0} ** 90;
+            //     var values_offset: usize = 0;
+            //     var refresh_time: f32 = 0.0;
+            // };
+
+            // while (static.refresh_time < self.fps_manager.getDelta()) {
+            //     const static_while = struct {
+            //     var phase: f32 = 0.0;
+            // };
+            //     static.values[static.values_offset] = cosf(phase);
+            //     static.values_offset = (static.values_offset + 1) % (static.values.len);
+            //     static_while.phase += 0.10f * static.values_offset;
+            //     static.refresh_time += 1.0 / 60.0;
+            // }
+            //
+            // // Plots can display overlay texts
+            // // (in this example, we will display an average value)
+            // {
+            //     var average: f32 = 0.0f;
+            //     for (static.values) |n|
+            //         average += values[n];
+            //     average /= @as(f32, @floatFromInt(static.values.len));
+            //     const overlay = try std.fmt.allocPrintZ(allocator, "Avg: {d:.4}", .{average});
+            //         zgui.plot
+            //     ImGui::PlotLines("Lines", values, IM_ARRAYSIZE(values), values_offset, overlay, -1.0f, 1.0f, ImVec2(0, 80.0f));
+            // }
+
             if (zgui.comboFromEnum("Render Mode", &present_mode)) {
                 try self.device.setSwapchainParameters(self.window, .sdr, present_mode);
             }
 
-            // zgui.endCombo();
-            if (zgui.button("Pause", .{})) {
-                self.model.rotation_speed = 0;
+            if (zgui.comboFromEnum("PrimitiveType", &pipline_primitive)) {
+                self.device.releaseGraphicsPipeline(self.pipeline);
+                self.pipeline = try setup_pipline(self.device, self.window, self.vertex_shader, self.fragment_shader, App.DEPTH_TEXTURE_FORMAT, pipline_primitive);
             }
-            _ = zgui.sliderAngle("Model Rotation Speed", .{ .vrad = &self.model.rotation_speed, .deg_max = 180, .deg_min = -180 });
-            _ = zgui.colorEdit3("Clear Color", .{ .col = &clear_color });
+
+            const static = struct {
+                var privew_path: [*:0]const u8 = undefined;
+            };
+            if (zgui.beginCombo("Model", .{ .preview_value = static.privew_path })) {
+                for (obj_files_path) |path| {
+                    if (zgui.selectable(path, .{})) {
+                        static.privew_path = path.ptr;
+                        if (self.model == null) {
+                            self.model = try Model.load(self.device, self.allocator, path, "./data/colormap.png");
+                        } else {
+                            self.model.?.unload(self.device);
+                            self.model = try Model.load(self.device, self.allocator, path, "./data/colormap.png");
+                        }
+                    }
+                }
+                zgui.endCombo();
+            }
+            if (self.model != null) {
+                if (zgui.button("Pause", .{})) {
+                    self.model.?.rotation_speed = 0;
+                }
+                _ = zgui.sliderAngle("ModelRotationSpeed", .{ .vrad = &self.model.?.rotation_speed, .deg_max = 180, .deg_min = -180 });
+            }
+
+            zgui.text("Load to loadArr2 {d}", .{zmath.loadArr2(.{ 1, 0 })});
         }
+
         zgui.end();
         //---------------------------------------------------------------------------------------
 
@@ -193,7 +254,7 @@ const App = struct {
 
             const render_pass = cmd_buffer.beginRenderPass(&.{color_target}, depth_target);
             render_pass.bindGraphicsPipeline(self.pipeline);
-            self.model.render(render_pass);
+            if (self.model) |model| model.render(render_pass);
 
             render_pass.end();
             //----------------------Zgui RenderPass----------------------
@@ -270,21 +331,24 @@ const App = struct {
     }
 
     fn update_mvp(self: *App) void {
-        const mv = zmath.mul(self.model.mat, self.camera.view);
+        const m = if (self.model) |model| model.mat else zmath.identity();
+        const mv = zmath.mul(m, self.camera.view);
         const mvp = zmath.mul(mv, App.proj_mat);
         self.ubo.mvp = mvp;
     }
 
     fn update(self: *App, delta: f32) void {
         self.fps_manager.tick();
-        self.model.update(delta);
+        if (self.model != null) self.model.?.update(delta);
         self.camera.update(.boring, delta);
         self.update_mvp();
     }
 
     fn deinit(self: *App) void {
         self.device.releaseGraphicsPipeline(self.pipeline);
-        self.model.unload(self.device);
+        for (obj_files_path) |path| self.allocator.free(path);
+        self.allocator.free(obj_files_path);
+        if (self.model != null) self.model.?.unload(self.device);
         self.device.releaseTexture(self.depth_texture);
         self.device.releaseShader(self.fragment_shader);
         self.device.releaseShader(self.vertex_shader);
@@ -292,6 +356,7 @@ const App = struct {
         zgui_sdl.deinit();
         self.device.deinit();
         self.window.deinit();
+        // zmesh.deinit();
         zstbi.deinit();
 
         zgui.deinit();
@@ -328,7 +393,17 @@ const Camera = struct {
     fn update(self: *Camera, mode: CameraUpdateMode, delta: f32) void {
         switch (mode) {
             .none => {},
-            .drone => {},
+            .drone => {
+                var move_input: Vec2 = .{ 0, 0 };
+                if (w_pressed) move_input[1] -= 1;
+                if (s_pressed) move_input[1] += 1;
+                if (a_pressed) move_input[0] -= 1;
+                if (d_pressed) move_input[0] += 1;
+                self.position[0] += move_input[0] * vel * delta;
+                self.position[2] += move_input[1] * vel * delta;
+                self.target[0] += move_input[0] * vel * delta;
+                self.target[2] += move_input[1] * vel * delta;
+            },
             .boring => {
                 if (w_pressed) {
                     self.position[2] -= vel * delta;
@@ -352,6 +427,129 @@ const Camera = struct {
     }
 };
 
+// const Model_Mesh = struct {
+//     var paused = false;
+//     vertex_buffer: gpu.Buffer,
+//     index_buffer: gpu.Buffer,
+//     texture: gpu.Texture,
+//     sampler: gpu.Sampler,
+//     index_count: u32,
+//
+//     mat: zmath.Mat = undefined,
+//
+//     rotation: f32 = 0,
+//     rotation_speed: f32 = std.math.degreesToRadians(90),
+//
+//     pub fn load(device: gpu.Device, allocator: std.mem.Allocator) !Model_Mesh {
+//         //Create mesh
+//
+//         const vertices = try allocator.alloc(Vertex, obj_data.faces.len);
+//         defer allocator.free(vertices);
+//         const indices = try allocator.alloc(u16, obj_data.faces.len);
+//         defer allocator.free(indices);
+//
+//         for (obj_data.faces, 0..) |faces, i| {
+//             const uv = obj_data.uvs_tex_coords[faces.uv_index];
+//             vertices[i] = .{
+//                 .pos = obj_data.positions[faces.position_index],
+//                 .color = White,
+//                 .uv = .{ uv[0], 1 - uv[1] },
+//             };
+//
+//             indices[i] = @intCast(i);
+//         }
+//
+//         const indices_len: u32 = @intCast(indices.len);
+//
+//         const vertices_byte_size = vertices.len * @sizeOf(@TypeOf(vertices[0]));
+//         const indices_byte_size = indices.len * @sizeOf(@TypeOf(indices[0]));
+//
+//         // create vertex buffer
+//         const vertex_buffer = try device.createBuffer(.{
+//             .usage = .{ .vertex = true },
+//             .size = @intCast(vertices_byte_size),
+//         });
+//         // defer device.releaseBuffer(vertex_buffer);
+//         // create index buffer
+//         const index_buffer = try device.createBuffer(.{
+//             .usage = .{ .index = true },
+//             .size = @intCast(indices_byte_size),
+//         });
+//         // defer device.releaseBuffer(index_buffer);
+//
+//         const transfer_buffer = try device.createTransferBuffer(.{
+//             .usage = .upload,
+//             .size = @intCast(vertices_byte_size + indices_byte_size),
+//         });
+//         defer device.releaseTransferBuffer(transfer_buffer);
+//         const map_tb = (try device.mapTransferBuffer(transfer_buffer, false));
+//         memcpy_into_transfer_buff(map_tb, vertices, vertices_byte_size);
+//         memcpy_into_transfer_buff(@ptrFromInt(@as(usize, @intFromPtr(map_tb)) + vertices_byte_size), indices, indices_byte_size);
+//         device.unmapTransferBuffer(transfer_buffer);
+//
+//         //--------------------------
+//         // - begin copy pass
+//         const copy_cmd_buffer = try device.aquireCommandBuffer();
+//         const copy_pass = copy_cmd_buffer.beginCopyPass();
+//         // - invoke upload commands
+//         copy_pass.uploadToBuffer(
+//             .{
+//                 .transfer_buffer = transfer_buffer,
+//                 .offset = 0,
+//             },
+//             .{
+//                 .buffer = vertex_buffer,
+//                 .offset = 0,
+//                 .size = @intCast(vertices_byte_size),
+//             },
+//             false,
+//         );
+//         copy_pass.uploadToBuffer(
+//             .{
+//                 .transfer_buffer = transfer_buffer,
+//                 .offset = @intCast(vertices_byte_size),
+//             },
+//             .{
+//                 .buffer = index_buffer,
+//                 .offset = 0,
+//                 .size = @intCast(indices_byte_size),
+//             },
+//             false,
+//         );
+//
+//         copy_pass.end();
+//         try copy_cmd_buffer.submit();
+//
+//         return Model_Mesh{
+//             .vertex_buffer = vertex_buffer,
+//             .index_buffer = index_buffer,
+//             .index_count = indices_len,
+//         };
+//     }
+//
+//     fn unload(self: Model, device: gpu.Device) void {
+//         device.releaseBuffer(self.index_buffer);
+//         device.releaseBuffer(self.vertex_buffer);
+//     }
+//
+//     fn render(self: Model, render_pass: gpu.RenderPass) void {
+//         const vertex_bindings = [_]gpu.BufferBinding{.{ .buffer = self.vertex_buffer, .offset = 0 }};
+//         render_pass.bindVertexBuffers(0, vertex_bindings[0..]);
+//         render_pass.bindIndexBuffer(.{ .buffer = self.index_buffer, .offset = 0 }, .indices_16bit);
+//         // const fragment_samplers_bindings = [_]gpu.TextureSamplerBinding{.{ .texture = self.texture, .sampler = self.sampler }};
+//         // render_pass.bindFragmentSamplers(0, fragment_samplers_bindings[0..]);
+//         render_pass.drawIndexedPrimitives(self.index_count, 1, 0, 0, 0);
+//     }
+//
+//     fn update(self: *Model, delta: f32) void {
+//         if (!paused) self.rotation += self.rotation_speed * delta;
+//         const rot = zmath.rotationY(self.rotation);
+//         const trans = zmath.translation(0, 0, 0);
+//         const model_mat = zmath.mul(rot, trans);
+//         self.mat = model_mat;
+//     }
+// };
+
 const Model = struct {
     var paused = false;
     vertex_buffer: gpu.Buffer,
@@ -366,9 +564,8 @@ const Model = struct {
     rotation_speed: f32 = std.math.degreesToRadians(90),
 
     pub fn load(device: gpu.Device, allocator: std.mem.Allocator, obj_path: []const u8, texture_path: [:0]const u8) !Model {
-        //Create Obj
-        const obj_data = try OBJ.parse(allocator, obj_path);
-        defer obj_data.deinit(allocator);
+        //Create mesh
+        const mesh = zmesh.io.parseAndLoadFile()
 
         //Create Texture
         var image = try zstbi.Image.loadFromFile(texture_path, 4);
@@ -530,7 +727,7 @@ const Model = struct {
     }
 };
 
-fn setup_pipline(device: gpu.Device, window: sdl3.video.Window, vertex_shader: gpu.Shader, fragment_shader: gpu.Shader, depth_texture_format: gpu.TextureFormat) !gpu.GraphicsPipeline {
+fn setup_pipline(device: gpu.Device, window: sdl3.video.Window, vertex_shader: gpu.Shader, fragment_shader: gpu.Shader, depth_texture_format: gpu.TextureFormat, primitive_type: gpu.PrimitiveType) !gpu.GraphicsPipeline {
     const vertex_attributes = [_]gpu.VertexAttribute{
         gpu.VertexAttribute{
             .location = 0,
@@ -565,7 +762,7 @@ fn setup_pipline(device: gpu.Device, window: sdl3.video.Window, vertex_shader: g
         .{
             .vertex_shader = vertex_shader,
             .fragment_shader = fragment_shader,
-            .primitive_type = .triangle_list,
+            .primitive_type = primitive_type,
             .vertex_input_state = .{
                 .vertex_buffer_descriptions = vertex_buffer_descriptions[0..],
                 .vertex_attributes = vertex_attributes[0..],

@@ -24,6 +24,23 @@ pub const OBJ_Data = struct {
     }
 };
 
+pub fn obj_files_in_specified_dir(allocator: std.mem.Allocator, dir_path: []const u8) ![][:0]const u8 {
+    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+    defer dir.close();
+
+    var obj_files = std.ArrayList([:0]const u8).init(allocator);
+    defer obj_files.deinit();
+
+    var it = dir.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".obj")) {
+            try obj_files.append(try std.mem.concatWithSentinel(allocator, u8, &.{ dir_path, "/", entry.name }, '\x00'));
+        }
+    }
+
+    return try obj_files.toOwnedSlice();
+}
+
 ///Remember to free the obj data after done do it in defer
 pub fn parse(allocator: std.mem.Allocator, path: []const u8) !OBJ_Data {
     const obj_file = try std.fs.cwd().openFile(path, .{});
