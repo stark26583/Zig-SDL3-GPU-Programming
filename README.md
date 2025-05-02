@@ -23,7 +23,7 @@ A cross-platform Zig demo showcasing GPU rendering with SDL3, SIMD math, and SPI
 ```bash
 git clone https://github.com/stark26583/Zig-SDL3-GPU-Programming.git
 cd Zig-SDL3-GPU-Programming
-zig build run
+zig build <name>
 ```
 
 ---
